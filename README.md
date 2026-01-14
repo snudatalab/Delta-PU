@@ -1,6 +1,6 @@
 # Delta-PU: Dual-level Meta-reweighting for Positive-Unlabeled Graph Classification
 
-This is the official implementation of **Delta-PU** (*Dual-level Meta-reweighting for Positive-Unlabeled Graph Classification*), submitted to ICDM 2025.
+This is the official implementation of **Delta-PU** (*Dual-level Meta-reweighting for Positive-Unlabeled Graph Classification*), submitted to WWW 2026.
 
 ---
 

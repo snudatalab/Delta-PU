@@ -1,3 +1,15 @@
+"""
+Dual-level Reweighting for Positive-Unlabeled Graph Classification (WWW '26)
+
+Authors:
+- Junghun Kim (bandalg97@snu.ac.kr), Seoul National University
+- Shihyung Park (psh0416@snu.ac.kr), Seoul National University
+- U Kang (ukang@snu.ac.kr), Seoul National University
+
+This software may be used only for research evaluation purposes.
+For other purposes (e.g., commercial), please contact the authors.
+"""
+
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 

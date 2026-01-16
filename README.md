@@ -38,12 +38,12 @@ tqdm==4.67.1
 You can reproduce the experimental results in the paper with the following commands:
 
 ```bash
-python main.py --dataset ENZYMES --loss dump
 python main.py --dataset MUTAG --loss dump
 python main.py --dataset NCI1 --loss dump
 python main.py --dataset NCI109 --loss dump
 python main.py --dataset PROTEINS --loss dump
-python main.py --dataset PTC-MR --loss dump
+python main.py --dataset facebook_ct1 --loss dump
+python main.py --dataset BAMultiShapes --loss dump
 ```
 
 ### Main Arguments

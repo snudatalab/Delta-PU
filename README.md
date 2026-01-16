@@ -63,11 +63,11 @@ python main.py --dataset BAMultiShapes --loss dump
 
 | Dataset   | Description |
 |-----------|-------------|
-| ENZYMES   | Classify proteins by enzyme type |
 | MUTAG     | Mutagenicity prediction of compounds |
 | NCI1      | Activity prediction for lung cancer cells |
 | NCI109    | Activity prediction for ovarian cancer cells |
 | PROTEINS  | Classify protein structures |
-| PTC-MR    | Carcinogenicity classification |
+| facebook_ct1  | Classify rumor / truth |
+| BAMultiShapes  | Synthetic data |
 
 All datasets are automatically downloaded from [TUDataset](https://chrsmrrs.github.io/datasets/docs/datasets/).

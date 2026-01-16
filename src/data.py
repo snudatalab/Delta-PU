@@ -7,29 +7,26 @@ import numpy as np
 import networkx as nx
 
 import torch
-from torch_geometric.datasets import TUDataset
+import torch.nn.functional as F
+from torch_geometric.datasets import (
+    TUDataset,
+    UPFD,
+    BA2MotifDataset,
+    BAMultiShapesDataset,
+)
+from torch_geometric.data import InMemoryDataset
 from torch_geometric.utils import contains_self_loops, contains_isolated_nodes, \
     is_undirected, to_networkx, degree
 
 from collections import Counter
 
-
-ROOT = '../../data'
-DATASETS = ['MUTAG', 'NCI1', 'NCI109', 'PROTEINS', 'PTC_MR', 'ENZYMES']
+ROOT = '../data'
+DATASETS = ['DD', 'MUTAG', 'NCI1', 'NCI109', 'PROTEINS', 'PTC_MR',
+            'COLLAB', 'Twitter', 'ENZYMES',
+            'BA2Motif', 'BAMultiShapes',]
 
 def drop_edges(graph, drop_rate, seed=0):
-    """
-    Randomly removes a percentage of edges from the input graph.
-
-    Args:
-        graph (Data): Input PyG graph.
-        drop_rate (float): Ratio of edges to drop.
-        seed (int): Random seed for reproducibility.
-
-    Returns:
-        Data: Graph with dropped edges.
-    """
-
+    """Return a copy of the graph with a percentage of edges randomly removed."""
     edge_index = graph.edge_index
     num_edges = edge_index.size(1)
 
@@ -51,18 +48,7 @@ def drop_edges(graph, drop_rate, seed=0):
     return new_graph
 
 def drop_graphs(graphs, drop_rate, seed=0):
-    """
-    Randomly selects and returns a subset of the input graph list.
-
-    Args:
-        graphs (list[Data]): List of graphs.
-        drop_rate (float): Proportion of graphs to drop.
-        seed (int): Random seed for reproducibility.
-
-    Returns:
-        list[Data]: Subset of input graphs.
-    """
-
+    """Return a subset of graphs after randomly dropping a portion of them."""
     if drop_rate <= 0.0 or len(graphs) == 0:
         return graphs  # No drop
 
@@ -76,95 +62,95 @@ def drop_graphs(graphs, drop_rate, seed=0):
     selected_indices = indices[:num_to_keep]
     return [graphs[i] for i in selected_indices]
 
-def to_degree_features(data):
-    """
-    Generates one-hot node degree features for a list of graphs.
-
-    Args:
-        data (list[Data]): List of graphs.
-
-    Returns:
-        Tensor: One-hot encoded degree features for all nodes.
-    """
-
-    d_list = []
-    for graph in data:
-        d_list.append(degree(graph.edge_index[0], num_nodes=graph.num_nodes))
-    x = torch.cat(d_list).long()
-    unique_degrees = torch.unique(x)
-    mapper = torch.full_like(x, fill_value=1000000000)
-    mapper[unique_degrees] = torch.arange(len(unique_degrees))
-    x_onehot = torch.zeros(x.size(0), len(unique_degrees))
-    x_onehot[torch.arange(x.size(0)), mapper[x]] = 1
-    return x_onehot
+def to_degree_features(data, cap=64):
+    xs = []
+    for g in data:
+        d = degree(g.edge_index[0], num_nodes=g.num_nodes).long()
+        d = torch.clamp(d, max=cap)                 # 과도한 차수 캡
+        x = F.one_hot(d, num_classes=cap+1).float() # (N, cap+1)
+        xs.append(x)
+    X = torch.cat(xs, dim=0).contiguous()
+    return X
 
 def compute_class_prior(data):
-    """
-    Computes the class prior (ratio of positive labels) for a dataset.
-
-    Args:
-        data (Dataset): PyG dataset.
-
-    Returns:
-        float: Proportion of positive class (label==1).
-    """
-
     labels = [data[i].y.item() for i in range(len(data))]
     num_pos = sum(1 for y in labels if y == 1)
     return num_pos / len(labels)
 
+def _parse_dataset_spec(spec: str):
+    """spec을 해석해 family와 인자를 반환."""
+    low = spec.lower()
+    if low in ('ba2motif', 'ba-2motif', 'ba2'):
+        return ('BA2Motif', {})
+    if low in ('bamultishapes', 'ba-multishapes', 'bamulti'):
+        return ('BAMultiShapes', {})
+    return ('TU', {'name': spec})
+
+class _ListInMemoryDataset(InMemoryDataset):
+    """여러 split을 합친 Data list를 InMemoryDataset로 묶어줌."""
+    def __init__(self, data_list):
+        super().__init__(root='')
+        self.data, self.slices = self.collate(data_list)
+
 def load_data(dataset, degree_x=True):
-    """
-    Loads a dataset from TUDataset and prepares node features.
+    family, args = _parse_dataset_spec(dataset)
 
-    Args:
-        dataset (str): Dataset name.
-        degree_x (bool): If True, use one-hot node degrees as features.
+    if family == 'TU':
+        name = args['name']
+        if name == 'Twitter':
+            name = 'TWITTER-Real-Graph-Partial'
+        data = TUDataset(root=os.path.join(ROOT, 'graphs'), name=name, use_node_attr=False)
+        data.data.edge_attr = None
 
-    Returns:
-        TUDataset: Loaded dataset with modified node features.
-    """
+        # 노드 특성이 없으면 degree one-hot 또는 상수 벡터 생성
+        if data.num_node_features == 0:
+            # 그래프별 노드 수 리스트로 x 슬라이스 생성
+            node_counts = [g.num_nodes for g in data]
+            data.slices['x'] = torch.tensor([0] + node_counts).cumsum(0)
 
-    if dataset == 'Twitter':
-        dataset = 'TWITTER-Real-Graph-Partial'
-    data = TUDataset(root=os.path.join(ROOT, 'graphs'), name=dataset,
-                     use_node_attr=False)
-    data.data.edge_attr = None
-    if data.num_node_features == 0:
-        data.slices['x'] = torch.tensor([0] + data.data.num_nodes).cumsum(0)
-        if degree_x:
-            data.data.x = to_degree_features(data)
-        else:
-            num_all_nodes = sum(g.num_nodes for g in data)
-            data.data.x = torch.ones((num_all_nodes, 1))
+            if degree_x:
+                data.data.x = to_degree_features(data)  # 아래 개선 버전 쓰길 권장
+            else:
+                num_all_nodes = sum(node_counts)
+                data.data.x = torch.ones((num_all_nodes, 1), dtype=torch.float32)
 
-    if dataset == 'ENZYMES':
-        labels = data.data.y.tolist()
-        counter = Counter(labels)
-        most_common_class, _ = counter.most_common(1)[0]
+        # ENZYMES는 다중클래스라 기존 코드처럼 이진으로 변환
+        if name == 'ENZYMES':
+            labels = data.data.y.tolist()
+            from collections import Counter
+            counter = Counter(labels)
+            most_common_class, _ = counter.most_common(1)[0]
+            binary_labels = [1 if y == most_common_class else 0 for y in labels]
+            data.data.y = torch.tensor(binary_labels, dtype=torch.long)
 
-        binary_labels = [1 if y == most_common_class else 0 for y in labels]
-        data.data.y = torch.tensor(binary_labels, dtype=torch.long)
+        return data
 
-    return data
+    elif family == 'UPFD':
+        # 모든 split(train/val/test)을 합쳐서 10-fold로 재분할
+        upfd_root = os.path.join(ROOT, 'UPFD')
+        all_list = []
+        for split in ('train', 'val', 'test'):
+            ds = UPFD(root=upfd_root, name=args['name'], feature=args['feature'], split=split)
+            # ds는 InMemoryDataset이므로 아이템을 뽑아 리스트로 결합
+            all_list.extend([ds[i] for i in range(len(ds))])
+        data = _ListInMemoryDataset(all_list)
+        data.data.edge_attr = None  # 일관성 유지
+        return data
+
+    elif family == 'BA2Motif':
+        # 1000개 그래프, 클래스 2 (House vs Cycle) — 바로 사용 가능
+        # 문서 상 통계: features=10, classes=2 :contentReference[oaicite:6]{index=6}
+        return BA2MotifDataset(root=os.path.join(ROOT, 'BA2Motif'))
+
+    elif family == 'BAMultiShapes':
+        # 1000개 그래프, 클래스 2 (모티프 조합 논리식 기반) — 바로 사용 가능
+        # 문서 상 통계: features=10, classes=2 :contentReference[oaicite:7]{index=7}
+        return BAMultiShapesDataset(root=os.path.join(ROOT, 'BAMultiShapes'))
+
+    else:
+        raise ValueError(f"Unknown dataset spec: {dataset}")
 
 def load_data_fold(dataset, fold, degree_x=True, observed_labeled_ratio=0.5, num_folds=10, seed=0, random_drop=0.0):
-    """
-    Loads a train/test split of the dataset and applies PU setting.
-
-    Args:
-        dataset (str): Dataset name.
-        fold (int): Fold index (0~9).
-        degree_x (bool): If True, use one-hot degree features.
-        observed_labeled_ratio (float): Proportion of observed positives.
-        num_folds (int): Number of folds for StratifiedKFold.
-        seed (int): Random seed.
-        random_drop (float): Edge drop rate.
-
-    Returns:
-        tuple: (List of PU-labeled training graphs, test graphs)
-    """
-
     assert 0 <= fold < 10
 
     data = load_data(dataset, degree_x)
@@ -199,18 +185,6 @@ def load_data_fold(dataset, fold, degree_x=True, observed_labeled_ratio=0.5, num
 
 
 def convert_to_pu_setting(graphs, observed_label_ratio=0.5, seed=0):
-    """
-    Converts a labeled dataset into a PU setting by hiding a portion of positive labels.
-
-    Args:
-        graphs (list[Data]): List of labeled graphs.
-        observed_label_ratio (float): Ratio of positives to keep labeled.
-        seed (int): Random seed.
-
-    Returns:
-        list[Data]: Modified list with partial positive labels.
-    """
-
     rng = random.Random(seed)
 
     # Identify positive indices
@@ -230,24 +204,10 @@ def convert_to_pu_setting(graphs, observed_label_ratio=0.5, seed=0):
 
 
 def is_connected(graph):
-    """
-    Checks whether the input graph is connected.
-
-    Args:
-        graph (Data): Input PyG graph.
-
-    Returns:
-        bool: True if the graph is connected.
-    """
-
     return nx.is_connected(to_networkx(graph, to_undirected=True))
 
 
 def print_stats():
-    """
-    Prints statistics for each dataset, including graph counts and structural properties.
-    """
-
     for data in DATASETS:
         out = load_data(data)
         num_graphs = len(out)
@@ -275,10 +235,6 @@ def print_stats():
 
 
 def download():
-    """
-    Downloads all datasets and precomputes the 10-fold splits for each.
-    """
-
     for data in DATASETS:
         load_data(data)
         for fold in range(10):

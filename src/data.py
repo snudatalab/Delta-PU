@@ -78,7 +78,6 @@ def compute_class_prior(data):
     return num_pos / len(labels)
 
 def _parse_dataset_spec(spec: str):
-    """spec을 해석해 family와 인자를 반환."""
     low = spec.lower()
     if low in ('ba2motif', 'ba-2motif', 'ba2'):
         return ('BA2Motif', {})
@@ -87,7 +86,6 @@ def _parse_dataset_spec(spec: str):
     return ('TU', {'name': spec})
 
 class _ListInMemoryDataset(InMemoryDataset):
-    """여러 split을 합친 Data list를 InMemoryDataset로 묶어줌."""
     def __init__(self, data_list):
         super().__init__(root='')
         self.data, self.slices = self.collate(data_list)
@@ -102,19 +100,16 @@ def load_data(dataset, degree_x=True):
         data = TUDataset(root=os.path.join(ROOT, 'graphs'), name=name, use_node_attr=False)
         data.data.edge_attr = None
 
-        # 노드 특성이 없으면 degree one-hot 또는 상수 벡터 생성
         if data.num_node_features == 0:
-            # 그래프별 노드 수 리스트로 x 슬라이스 생성
             node_counts = [g.num_nodes for g in data]
             data.slices['x'] = torch.tensor([0] + node_counts).cumsum(0)
 
             if degree_x:
-                data.data.x = to_degree_features(data)  # 아래 개선 버전 쓰길 권장
+                data.data.x = to_degree_features(data)
             else:
                 num_all_nodes = sum(node_counts)
                 data.data.x = torch.ones((num_all_nodes, 1), dtype=torch.float32)
 
-        # ENZYMES는 다중클래스라 기존 코드처럼 이진으로 변환
         if name == 'ENZYMES':
             labels = data.data.y.tolist()
             from collections import Counter
@@ -126,25 +121,19 @@ def load_data(dataset, degree_x=True):
         return data
 
     elif family == 'UPFD':
-        # 모든 split(train/val/test)을 합쳐서 10-fold로 재분할
         upfd_root = os.path.join(ROOT, 'UPFD')
         all_list = []
         for split in ('train', 'val', 'test'):
             ds = UPFD(root=upfd_root, name=args['name'], feature=args['feature'], split=split)
-            # ds는 InMemoryDataset이므로 아이템을 뽑아 리스트로 결합
             all_list.extend([ds[i] for i in range(len(ds))])
         data = _ListInMemoryDataset(all_list)
         data.data.edge_attr = None  # 일관성 유지
         return data
 
     elif family == 'BA2Motif':
-        # 1000개 그래프, 클래스 2 (House vs Cycle) — 바로 사용 가능
-        # 문서 상 통계: features=10, classes=2 :contentReference[oaicite:6]{index=6}
         return BA2MotifDataset(root=os.path.join(ROOT, 'BA2Motif'))
 
     elif family == 'BAMultiShapes':
-        # 1000개 그래프, 클래스 2 (모티프 조합 논리식 기반) — 바로 사용 가능
-        # 문서 상 통계: features=10, classes=2 :contentReference[oaicite:7]{index=7}
         return BAMultiShapesDataset(root=os.path.join(ROOT, 'BAMultiShapes'))
 
     else:

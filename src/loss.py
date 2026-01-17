@@ -110,11 +110,9 @@ def compute_instance_weights(model, loss_func, train_dataset, device, class_prio
 
     model.eval()
 
-    # 1. Index 부여
     for i, data in enumerate(train_dataset):
         data.idx = torch.tensor(i)
 
-    # 2. Full train batch 준비
     full_batch = Batch.from_data_list(train_dataset).to(device)
     train_x = full_batch.x
     train_edge_index = full_batch.edge_index
@@ -125,7 +123,6 @@ def compute_instance_weights(model, loss_func, train_dataset, device, class_prio
         logits = model(train_x, train_edge_index, train_batch, hop_weights=hop_weights)
         probs = torch.softmax(logits, dim=-1)[:, 1]  # P(y=1)
 
-    # 5. meta-val index 정의
     pos_idx = (train_y == 1).nonzero(as_tuple=False).view(-1)
     unl_idx = (train_y == 0).nonzero(as_tuple=False).view(-1)
 
@@ -138,39 +135,31 @@ def compute_instance_weights(model, loss_func, train_dataset, device, class_prio
     val_mask = torch.zeros_like(train_y, dtype=torch.bool)
     val_mask[val_idx] = True
 
-    # 3. meta-model 초기화
     meta_model = deepcopy(model).to(device)
     meta_model.train()
 
-    # 4. 전체 train instance에 대해 loss 계산
     pred = meta_model(train_x, train_edge_index, train_batch, hop_weights=hop_weights)
     raw_losses = loss_func(pred, train_y, reduction='none')
 
-    # 5. ε 정의 (전체 instance용)
     eps = torch.zeros(len(train_dataset), device=device, requires_grad=True)
 
-    # 6. ε-weighted loss로 parameter 업데이트
     weighted_loss = torch.sum(raw_losses * (eps + 1e-12))
 
     meta_params = list(meta_model.parameters())
     grads = grad(weighted_loss, meta_params, create_graph=True)
     updated_params = [p - lr * g for p, g in zip(meta_params, grads)]
 
-    # 7. meta-loss 계산: selected meta-val용
     pred_val = model.parameterized_forward(train_x, train_edge_index, train_batch, updated_params, hop_weights)
     val_loss = loss_func(pred_val[val_mask], train_y[val_mask], reduction='mean')
 
-    # 8. meta-gradient 계산
     grad_eps = grad(val_loss, eps, only_inputs=True)[0]
 
-    # 9. weight 정규화
     weights = torch.clamp(-grad_eps, min=0.0)
     # weights = (1-class_prior) * (1 + weights / (weights.max() + 1e-12))
 
     weights = (weights / (weights.max() + 1e-12))  # normalize to [0, 1]
     weights = (1 - class_prior) + weights * class_prior  # scale to [1 - pi, 1]
 
-    # 10. known positive weight = 1
     for i, data in enumerate(train_dataset):
         if data.y.item() == 1:
             weights[i] = 1.0
@@ -194,43 +183,34 @@ def compute_hop_weights(model, loss_func, train_dataset, device, val_mask, lr=0.
         Tensor: Normalized hop weights [N_graphs x num_layers]
     """
 
-    # 1. train_dataset에 idx 부여
     for i, data in enumerate(train_dataset):
         data.idx = torch.tensor(i)
 
-    # 2. batch 준비
     full_batch = Batch.from_data_list(train_dataset).to(device)
     x, edge_index, batch, y = full_batch.x, full_batch.edge_index, full_batch.batch, full_batch.y
     num_graphs = y.size(0)
     num_layers = model.num_layers
 
-    # 3. meta-model 준비
     meta_model = deepcopy(model).to(device)
     meta_model.train()
 
-    # 4. hop_weights 초기화 (requires_grad=True)
     hop_weights = torch.zeros((num_graphs, num_layers), device=device, requires_grad=True)
 
-    # 5. ε-weighted forward
     pred = meta_model(x, edge_index, batch, hop_weights=F.softmax(hop_weights, dim=1))
     if instance_weights is not None:
         loss = loss_func(pred, y, instance_weights, reduction='mean')
     else:
         loss = loss_func(pred, y, reduction='mean')
 
-    # 6. meta-gradient 기반 파라미터 업데이트
     meta_params = list(meta_model.parameters())
     grads = grad(loss, meta_params, create_graph=True)
     updated_params = [p - lr * g for p, g in zip(meta_params, grads)]
 
-    # 7. updated model로 평가
     pred_val = model.parameterized_forward(x, edge_index, batch, updated_params)
     val_loss = loss_func(pred_val[val_mask], y[val_mask], reduction='mean')
 
-    # 8. hop_weight에 대한 meta-gradient
     grad_eps = grad(val_loss, hop_weights, only_inputs=True)[0]
 
-    # 9. hop weight 정규화 (softmax + detach)
     weights = torch.clamp(-grad_eps*10, min=0.0)
     weights = F.softmax(weights.detach(), dim=1)
 

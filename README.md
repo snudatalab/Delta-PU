@@ -77,7 +77,7 @@ If you use this code, please cite the following paper.
 ```
 @article{lee2021auber,
   title={Delta-PU: Dual-level Meta-reweighting for Positive-Unlabeled Graph Classification},
-  author={Kim, Junghun and Park, Shihyung and Kang, U},
+  author={Kim, Junghun and Park, Shihyung and Kang, U.},
   journal={WWW},
   year={2026},
 }

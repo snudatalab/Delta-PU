@@ -71,3 +71,14 @@ python main.py --dataset BAMultiShapes --loss dump
 | BAMultiShapes  | Synthetic data |
 
 All datasets are automatically downloaded from [TUDataset](https://chrsmrrs.github.io/datasets/docs/datasets/).
+
+## Reference
+If you use this code, please cite the following paper.
+```
+@article{lee2021auber,
+  title={Delta-PU: Dual-level Meta-reweighting for Positive-Unlabeled Graph Classification},
+  author={Kim, Junghun and Park, Shihyung and Kang, U},
+  journal={WWW},
+  year={2026},
+}
+```

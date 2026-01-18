@@ -75,7 +75,7 @@ All datasets are automatically downloaded from [TUDataset](https://chrsmrrs.gith
 ## Reference
 If you use this code, please cite the following paper.
 ```
-@article{lee2021auber,
+@article{kim2026deltapu,
   title={Delta-PU: Dual-level Meta-reweighting for Positive-Unlabeled Graph Classification},
   author={Kim, Junghun and Park, Shihyung and Kang, U.},
   journal={WWW},
